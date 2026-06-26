@@ -1,229 +1,343 @@
-USE college_db;
+-- HANDS-ON 3
 
 
-SELECT s.student_id, s.first_name, s.last_name, COUNT(e.enrollment_id) AS enrollment_count
-FROM students s
-JOIN enrollments e ON s.student_id = e.student_id
-GROUP BY s.student_id, s.first_name, s.last_name
-HAVING COUNT(e.enrollment_id) > (
-    SELECT AVG(enrollment_count) FROM (
-        SELECT COUNT(*) AS enrollment_count
-        FROM enrollments
-        GROUP BY student_id
-    ) AS student_counts
+-- TASK 1: SUBQUERIES
+
+
+-- Students having more courses than average
+
+SELECT 
+e.student_id,
+s.first_name || ' ' || s.last_name AS student_name,
+COUNT(e.course_id) AS total_courses
+FROM enrollments e
+JOIN students s
+ON e.student_id=s.student_id
+GROUP BY 
+e.student_id,
+s.first_name,
+s.last_name
+HAVING COUNT(e.course_id) >
+(
+SELECT AVG(course_count)
+FROM
+(
+SELECT student_id,
+COUNT(course_id) AS course_count
+FROM enrollments
+GROUP BY student_id
+) x
 );
 
-SELECT c.course_id, c.course_name
+
+
+-- Courses where all grades are A
+
+SELECT 
+c.course_id,
+c.course_name
 FROM courses c
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM enrollments e
-    WHERE e.course_id = c.course_id
-      AND (e.grade != 'A' OR e.grade IS NULL)
+WHERE EXISTS
+(
+SELECT 1
+FROM enrollments e
+WHERE e.course_id=c.course_id
 )
-AND EXISTS (
-    SELECT 1
-    FROM enrollments e
-    WHERE e.course_id = c.course_id
+AND NOT EXISTS
+(
+SELECT 1
+FROM enrollments e
+WHERE e.course_id=c.course_id
+AND e.grade <> 'A'
 );
 
-SELECT p.professor_id, p.prof_name, p.department_id, p.salary
+
+
+-- Highest salary professor in every department
+
+SELECT *
 FROM professors p
-WHERE p.salary = (
-    SELECT MAX(p2.salary)
-    FROM professors p2
-    WHERE p2.department_id = p.department_id
+WHERE salary=
+(
+SELECT MAX(salary)
+FROM professors p2
+WHERE p2.department_id=p.department_id
 );
 
-SELECT dept_avg.department_id, d.dept_name, dept_avg.avg_salary
-FROM (
-    SELECT department_id, ROUND(AVG(salary), 2) AS avg_salary
-    FROM professors
-    GROUP BY department_id
-) AS dept_avg
-JOIN departments d ON dept_avg.department_id = d.department_id
-WHERE dept_avg.avg_salary > 85000;
 
 
-CREATE OR REPLACE VIEW vw_student_enrollment_summary AS
+-- Departments average salary above 85000
+
+SELECT *
+FROM
+(
+SELECT 
+department_id,
+AVG(salary) average_salary
+FROM professors
+GROUP BY department_id
+) a
+WHERE average_salary > 85000;
+
+
+
+
+-- TASK 2: VIEWS
+
+
+DROP VIEW IF EXISTS vw_student_summary CASCADE;
+
+
+CREATE VIEW vw_student_summary AS
 SELECT
-    s.student_id,
-    CONCAT(s.first_name, ' ', s.last_name) AS full_name,
-    d.dept_name,
-    COUNT(e.enrollment_id) AS courses_enrolled,
-    ROUND(AVG(
-        CASE e.grade
-            WHEN 'A' THEN 4
-            WHEN 'B' THEN 3
-            WHEN 'C' THEN 2
-            WHEN 'D' THEN 1
-            WHEN 'F' THEN 0
-        END
-    ), 2) AS gpa
+s.student_id,
+s.first_name || ' ' || s.last_name AS student_name,
+d.dept_name,
+COUNT(e.course_id) total_courses
 FROM students s
-JOIN departments d ON s.department_id = d.department_id
-LEFT JOIN enrollments e ON s.student_id = e.student_id
-GROUP BY s.student_id, full_name, d.dept_name;
+JOIN departments d
+ON s.department_id=d.department_id
+LEFT JOIN enrollments e
+ON s.student_id=e.student_id
+GROUP BY
+s.student_id,
+s.first_name,
+s.last_name,
+d.dept_name;
 
-CREATE OR REPLACE VIEW vw_course_stats AS
+
+SELECT *
+FROM vw_student_summary;
+
+
+
+DROP VIEW IF EXISTS vw_course_summary CASCADE;
+
+
+CREATE VIEW vw_course_summary AS
 SELECT
-    c.course_name,
-    c.course_code,
-    COUNT(e.enrollment_id) AS total_enrollments,
-    ROUND(AVG(
-        CASE e.grade
-            WHEN 'A' THEN 4
-            WHEN 'B' THEN 3
-            WHEN 'C' THEN 2
-            WHEN 'D' THEN 1
-            WHEN 'F' THEN 0
-        END
-    ), 2) AS avg_gpa
+c.course_id,
+c.course_name,
+COUNT(e.enrollment_id) total_students
 FROM courses c
-LEFT JOIN enrollments e ON c.course_id = e.course_id
-GROUP BY c.course_id, c.course_name, c.course_code;
+LEFT JOIN enrollments e
+ON c.course_id=e.course_id
+GROUP BY
+c.course_id,
+c.course_name;
 
-SELECT * FROM vw_student_enrollment_summary
-WHERE gpa > 3.0;
 
-UPDATE vw_student_enrollment_summary
-SET gpa = 4.0
-WHERE student_id = 1;
-
-DROP VIEW IF EXISTS vw_student_enrollment_summary;
-DROP VIEW IF EXISTS vw_course_stats;
-
-CREATE OR REPLACE VIEW vw_course_stats AS
-SELECT
-    c.course_name,
-    c.course_code,
-    COUNT(e.enrollment_id) AS total_enrollments,
-    ROUND(AVG(
-        CASE e.grade
-            WHEN 'A' THEN 4
-            WHEN 'B' THEN 3
-            WHEN 'C' THEN 2
-            WHEN 'D' THEN 1
-            WHEN 'F' THEN 0
-        END
-    ), 2) AS avg_gpa
-FROM courses c
-LEFT JOIN enrollments e ON c.course_id = e.course_id
-GROUP BY c.course_id, c.course_name, c.course_code;
-
-CREATE OR REPLACE VIEW vw_student_enrollment_summary AS
-SELECT
-    student_id,
-    first_name,
-    last_name,
-    email,
-    department_id,
-    enrollment_year
-FROM students
-WHERE enrollment_year >= 2022
-WITH CHECK OPTION;
-
-SELECT * FROM vw_course_stats;
+SELECT *
+FROM vw_course_summary;
 
 
 
 
-DROP PROCEDURE IF EXISTS sp_enroll_student;
 
-DELIMITER $$
+-- TASK 3: FUNCTIONS
 
-CREATE PROCEDURE sp_enroll_student (
-    IN p_student_id INT,
-    IN p_course_id INT,
-    IN p_enrollment_date DATE
+
+
+DROP FUNCTION IF EXISTS fn_add_enrollment(INT,INT,DATE);
+
+
+CREATE OR REPLACE FUNCTION fn_add_enrollment
+(
+p_student INT,
+p_course INT,
+p_date DATE
 )
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+
 BEGIN
-    DECLARE existing_count INT;
 
-    SELECT COUNT(*) INTO existing_count
-    FROM enrollments
-    WHERE student_id = p_student_id AND course_id = p_course_id;
+IF EXISTS
+(
+SELECT 1
+FROM enrollments
+WHERE student_id=p_student
+AND course_id=p_course
+)
 
-    IF existing_count > 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Duplicate enrollment: student is already enrolled in this course.';
-    ELSE
-        INSERT INTO enrollments (student_id, course_id, enrollment_date, grade)
-        VALUES (p_student_id, p_course_id, p_enrollment_date, NULL);
-    END IF;
-END$$
+THEN
 
-DELIMITER ;
+RETURN 'Already enrolled';
 
-CALL sp_enroll_student(2, 4, '2024-01-15');
+END IF;
 
-CALL sp_enroll_student(2, 4, '2024-01-15');
 
-DROP TABLE IF EXISTS department_transfer_log;
+INSERT INTO enrollments
+(
+student_id,
+course_id,
+enrollment_date
+)
 
-CREATE TABLE department_transfer_log (
-    log_id INT PRIMARY KEY AUTO_INCREMENT,
-    student_id INT,
-    old_department_id INT,
-    new_department_id INT,
-    transfer_date DATETIME DEFAULT CURRENT_TIMESTAMP
+VALUES
+(
+p_student,
+p_course,
+p_date
 );
 
-DROP PROCEDURE IF EXISTS sp_transfer_student;
 
-DELIMITER $$
+RETURN 'Enrollment Added';
 
-CREATE PROCEDURE sp_transfer_student (
-    IN p_student_id INT,
-    IN p_new_department_id INT
+
+END;
+
+$$;
+
+
+
+-- Function test
+
+SELECT fn_add_enrollment
+(
+(SELECT MIN(student_id) FROM students),
+(SELECT MIN(course_id) FROM courses),
+CURRENT_DATE
+);
+
+
+
+
+
+-- Transfer log table
+
+
+DROP TABLE IF EXISTS student_transfer_log;
+
+
+CREATE TABLE student_transfer_log
+(
+log_id SERIAL PRIMARY KEY,
+student_id INT,
+old_department INT,
+new_department INT,
+transfer_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+DROP FUNCTION IF EXISTS fn_transfer_student(INT,INT);
+
+
+CREATE OR REPLACE FUNCTION fn_transfer_student
+(
+p_student INT,
+p_new_dept INT
 )
+
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+
+DECLARE
+old_dept INT;
+
 BEGIN
-    DECLARE old_dept_id INT;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
 
-    START TRANSACTION;
+SELECT department_id
+INTO old_dept
+FROM students
+WHERE student_id=p_student;
 
-    SELECT department_id INTO old_dept_id
-    FROM students
-    WHERE student_id = p_student_id;
 
-    UPDATE students
-    SET department_id = p_new_department_id
-    WHERE student_id = p_student_id;
+UPDATE students
+SET department_id=p_new_dept
+WHERE student_id=p_student;
 
-    INSERT INTO department_transfer_log (student_id, old_department_id, new_department_id)
-    VALUES (p_student_id, old_dept_id, p_new_department_id);
 
-    COMMIT;
-END$$
+INSERT INTO student_transfer_log
+(
+student_id,
+old_department,
+new_department
+)
 
-DELIMITER ;
+VALUES
+(
+p_student,
+old_dept,
+p_new_dept
+);
 
-CALL sp_transfer_student(3, 1);
 
-SELECT * FROM department_transfer_log;
+RETURN 'Transfer Completed';
 
-CALL sp_transfer_student(3, 999);
 
-SELECT * FROM students WHERE student_id = 3;
-SELECT * FROM department_transfer_log;
+END;
 
-START TRANSACTION;
+$$;
 
-INSERT INTO enrollments (student_id, course_id, enrollment_date, grade)
-VALUES (6, 1, '2024-02-01', NULL);
 
-SAVEPOINT before_second_insert;
 
-INSERT INTO enrollments (student_id, course_id, enrollment_date, grade)
-VALUES (999, 999, '2024-02-01', NULL);
+-- Function test
 
-ROLLBACK TO SAVEPOINT before_second_insert;
+SELECT fn_transfer_student
+(
+(SELECT MIN(student_id) FROM students),
+(SELECT MIN(department_id) FROM departments)
+);
+
+
+
+
+
+-- TASK 4: TRANSACTIONS
+
+
+
+BEGIN;
+
+
+UPDATE students
+SET department_id=
+(
+SELECT MIN(department_id)
+FROM departments
+)
+WHERE student_id=
+(
+SELECT MIN(student_id)
+FROM students
+);
+
 
 COMMIT;
 
-SELECT * FROM enrollments WHERE student_id = 6;
+
+
+
+
+-- SAVEPOINT TRANSACTION
+
+
+BEGIN;
+
+
+INSERT INTO enrollments
+(
+student_id,
+course_id,
+enrollment_date
+)
+
+VALUES
+(
+(SELECT MIN(student_id) FROM students),
+(SELECT MIN(course_id) FROM courses),
+CURRENT_DATE
+);
+
+
+SAVEPOINT save1;
+
+
+ROLLBACK TO SAVEPOINT save1;
+
+
+COMMIT;
